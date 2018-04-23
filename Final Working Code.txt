@@ -1,0 +1,161 @@
+#include "mbed.h"
+#include "stdlib.h"
+ 
+DigitalOut led1(LED3);
+DigitalOut clk(PTA5);
+DigitalOut si(PTC5);
+AnalogIn camData(PTC1);
+PwmOut servo(PTA4);
+PwmOut Motor_right(PTA12);           //PWM for the right motor
+PwmOut Motor_left(PTA1);            //PWM output for  left dc motor
+DigitalOut Motor_Disable1(PTD4);   //KEEP DISABLED-RIGHT
+DigitalOut Motor_Disable2(PTA2);    //KEEP DSIABLED-LEFT
+DigitalOut EN1(PTC6);               //Enable Pin for left Motor
+DigitalOut EN2(PTC10);              //Enable Pin for Right Motor
+Serial pc(USBTX , USBRX);             //tx, rx
+//SHIELD Connections
+//DigitalOut EN(PTE21);               //Enable Pin
+//DigitalOut FLT(PTE20);              //Fault Pin
+
+float ADCdata [128];
+float slopeAccum;
+float slopeCount;
+float approxPos;
+float minVal;
+
+//PD Control Variables
+float pwmoutservo = 1700;
+float errors;
+float last_error;
+float target_position=64;
+float previous_pwm;
+
+//Proportional Variables
+float kp = 5.0f ;
+
+//Derivative Variables
+float kd;
+float derivative; 
+ 
+int minLoc;
+
+//servo motor directions 
+int straight = 1700;
+int hardLeft = 1480;
+int slightLeft = 1575;
+int slightRight = 1840;
+int hardRight = 1980;
+
+// dc motor speed variations
+float dc_slight = 10.0f;
+float dc_turn = 7.4f;
+ 
+float currDirection = straight; //Why?
+ 
+int main() 
+{
+    
+servo.period_ms(20);                // period of servo motor  = 20ms
+Motor_right.period_ms(200);         // period of right dc motor  = 200ms
+Motor_left.period_ms(200);          // period of left dc motor   = 200ms
+EN1=1;
+EN2=1;
+Motor_Disable1=0;
+Motor_Disable2=0;
+//EN=1;
+//FLT=1;
+
+int integrationCounter = 0; 
+
+while(1) 
+{
+            
+if(integrationCounter % 151== 0)
+{
+            //__disable_irq
+            si = 1;
+            clk = 1;
+            //wait(.00001);
+            si = 0;
+            clk = 0;
+            integrationCounter = 0;
+            
+            slopeAccum = 0;
+            slopeCount = 0;
+            approxPos = 0;
+                
+}
+
+else if (integrationCounter > 129)
+{
+            
+       minVal = ADCdata[7];
+       for (int c = 5; c < 118; c++) 
+       {
+           if (ADCdata[c] < minVal)
+           {
+                minVal = ADCdata[c];
+                minLoc = c;
+           }
+       }
+            
+       for (int c = 5; c < 118; c++) 
+       {
+           if (ADCdata[c] >= minVal && ADCdata[c] - minVal < 0.04f && ADCdata[c] > 0.1f)
+           {
+                slopeAccum += c;
+                slopeCount++;
+           }
+       }
+           
+       approxPos = (float)slopeAccum/(float)slopeCount;
+      
+       
+       //Motor_right.pulsewidth_ms(dc_slight);     
+       //PD Controller
+       errors = approxPos - target_position;
+       //derivative = error - last_error;
+       previous_pwm = pwmoutservo;
+       pwmoutservo = 1705 + (kp * errors); //P Controller ADD "+ (derivative * kd)";
+       
+       /*if (approxPos >128 && approxPos <0)
+        {
+            pwmoutservo = previous_pwm;
+        }*/
+            
+       servo.pulsewidth_us(pwmoutservo);
+       
+       if (errors >= -64 && errors <= -35)
+       {
+           Motor_right.pulsewidth_ms(dc_turn);
+        }
+        else if (errors >= 37 && errors <= 64)
+       {
+           Motor_right.pulsewidth_ms(dc_turn);
+        }
+        else 
+        { 
+            Motor_right.pulsewidth_ms(dc_slight);    
+       }
+        last_error = errors;
+       
+       //Hall effect Sensor Control
+       
+       
+       
+       integrationCounter = 150;
+}
+      else
+      {
+            clk = 1;
+            wait_us(70);
+            ADCdata[integrationCounter - 1] = camData;
+            clk = 0;
+      }
+ 
+        //clk = 0;
+        integrationCounter++;
+        //camData.
+        
+  } //endofwhile
+} //endofmain
